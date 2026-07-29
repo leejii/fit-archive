@@ -2,15 +2,17 @@
 id: impl-v1
 title: V1 구현계획서 — 수동 입력 코어
 type: impl
-version: 0.2.0
+version: 0.4.0
 status: draft
 scope: FitArchive V1(수동 입력 코어)의 구현 순서·태스크·수용 기준
 related: [adr-0001-platform, adr-0002-data-storage, adr-0003-v1-scope]
-updated: 2026-07-22
+updated: 2026-07-29
 ---
 
 # V1 구현계획서 — 수동 입력 코어
 
+> **v0.4.0 변경**: Phase 1(인증) 완료 — 실제 로그인 e2e 검증 통과. 인증 방식은 당초 Email OTP로 시작했으나, **Supabase 무료 기본 이메일은 커스텀 SMTP 없이 템플릿 편집이 잠겨 6자리 코드({{ .Token }}) 표시가 불가** → **Magic Link로 전환**(기본 템플릿 무설정 동작). 인증 로직을 `lib/auth`로 추상화해둔 덕에 전환은 상수 flip + UI 소폭 수정으로 끝남. OTP 복귀는 커스텀 SMTP 설정 시 가능.
+> **v0.3.0 변경**: Phase 0(선행조건·Scaffold) 전 태스크 완료. Supabase 연결 스모크 검증 통과. **V1은 service_role 키를 쓰지 않기로 확정**(로그인 세션 + RLS만으로 충분 → 관리 권한 비밀키 관리 표면 제거).
 > **v0.2.0 변경**: 인증(매직링크 + RLS)을 **auth-early**로 확정. 데이터가 생기는 첫 슬라이스부터 로그인·RLS를 켜, 매 Phase가 secure-by-default가 되고 보안 소급 재작업을 없앤다. (이전 초안의 'Phase 4 일괄 적용' 제거)
 
 ## 목표
@@ -40,58 +42,62 @@ updated: 2026-07-22
 
 > 사용자 수동 작업과 코드 scaffold를 분리한다.
 
-### T0.1 [사용자 수동] Supabase 프로젝트 준비
+### T0.1 [사용자 수동] Supabase 프로젝트 준비 ✅
 - 설명: Supabase 무료 계정·프로젝트 생성, DB 비밀번호 설정, Storage 버킷 생성 예정 확인.
-- 산출: `Project URL`, `anon key`, `service_role key`(서버 전용) 확보.
+- 산출: `Project URL`, `anon(publishable) key` 확보. (service_role 키는 V1 미사용 → 확보 불필요)
 - 수용 기준:
-  - [ ] Supabase 프로젝트가 생성되어 대시보드 접근 가능
-  - [ ] Project URL / anon key / service_role key를 안전한 곳에 확보
+  - [x] Supabase 프로젝트가 생성되어 대시보드 접근 가능
+  - [x] Project URL / anon(publishable) key를 안전한 곳에 확보
 
-### T0.2 [사용자 수동] 환경 변수 발급·기입
+### T0.2 [사용자 수동] 환경 변수 발급·기입 ✅
 - 설명: `.env.local`에 키 기입, `.env.example` 커밋용 템플릿 유지.
 - 대상: `.env.local`(gitignore), `.env.example`
 - 수용 기준:
-  - [ ] `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` 설정
-  - [ ] `SUPABASE_SERVICE_ROLE_KEY`는 서버 전용으로 분리(클라이언트 노출 금지)
-  - [ ] `.env.local`이 `.gitignore`에 포함
+  - [x] `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` 설정
+  - [x] `SUPABASE_SERVICE_ROLE_KEY`는 V1 미사용(비워둠) — 필요 시 서버 전용으로 분리
+  - [x] `.env.local`이 `.gitignore`에 포함
 
-### T0.3 [코드] Next.js + TS + Tailwind + shadcn 초기화
+### T0.3 [코드] Next.js + TS + Tailwind + shadcn 초기화 ✅
 - 설명: `create-next-app`(App Router, TS, Tailwind), `shadcn init`, 기본 레이아웃.
 - 대상: `app/`, `components/ui/`, `tailwind.config.ts`, `app/layout.tsx`, `app/page.tsx`
+- 실제: Next 16.2.11 / React 19.2.4 / Tailwind v4 / shadcn(base-nova·neutral).
 - 수용 기준:
-  - [ ] `npm run build` 성공
-  - [ ] shadcn 컴포넌트 1개(Button) 렌더 확인
-  - [ ] 루트 페이지가 로컬에서 렌더
+  - [x] `npm run build` 성공
+  - [x] shadcn 컴포넌트 1개(Button) 렌더 확인
+  - [x] 루트 페이지가 로컬에서 렌더
 
-### T0.4 [코드] Supabase 클라이언트 연결
+### T0.4 [코드] Supabase 클라이언트 연결 ✅
 - 설명: 브라우저용/서버용 클라이언트 유틸 분리(`@supabase/ssr` 기준).
 - 대상: `lib/supabase/client.ts`, `lib/supabase/server.ts`
+- 실제: `@supabase/ssr` 0.12.3 · `supabase-js` 2.110.9. server 클라이언트는 Next16 `await cookies()` + getAll/setAll 패턴.
 - 수용 기준:
-  - [ ] 서버 컴포넌트에서 Supabase에 연결해 에러 없이 응답 수신
-  - [ ] service_role 키가 클라이언트 번들에 포함되지 않음(검색 확인)
+  - [x] 연결 스모크 통과 — `auth/v1/health` 200, `supabase-js` 쿼리 PGRST205("table 없음" = 키·연결 정상). 서버 컴포넌트 실사용은 Phase 1에서 검증.
+  - [x] service_role 키 미사용(V1) — 클라이언트에 노출될 비밀키 자체가 없음.
 
 **검증 방법**: `npm run build` + 로컬에서 루트 페이지 및 Supabase 연결 스모크 확인.
 
 ---
 
-## Phase 1 — 인증 기반 (매직링크 + 보호 라우트)
+## Phase 1 — 인증 기반 (매직링크 + 보호 라우트) ✅
 
 > 데이터를 만들기 전에 로그인 골격을 세운다. 이후 모든 슬라이스가 secure-by-default가 된다.
+> 실제: 인증 로직을 `lib/auth/`로 추상화(`EMAIL_AUTH_METHOD` 상수로 OTP↔MagicLink 전환), 현재 **Magic Link**. 인증 확인은 `getClaims()`(공식 보안 권고).
 
-### T1.1 [코드] 매직링크 인증 + 세션
+### T1.1 [코드] 매직링크 인증 + 세션 ✅
 - 설명: 이메일 매직링크 로그인/로그아웃, 세션 관리(`@supabase/ssr`), 콜백 처리.
-- 대상: `app/(auth)/login/`, `app/auth/callback/route.ts`, `lib/supabase/*`
+- 대상: `app/(auth)/login/page.tsx`, `app/auth/callback/route.ts`, `lib/auth/{config,actions}.ts`
 - 수용 기준:
-  - [ ] 매직링크로 로그인·로그아웃 동작
-  - [ ] 세션이 새로고침 후에도 유지, 만료·유효하지 않은 링크 처리
-  - [ ] 로그인 후 빈 대시보드(또는 빈 목록) 렌더 = 돌아가는 앱
+  - [x] 매직링크로 로그인 동작(e2e: 링크 클릭→콜백→세션→홈 이메일 표시). 로그아웃 form action 구현.
+  - [x] 세션은 미들웨어 `getClaims()`가 갱신 유지, 콜백 실패 시 `/login?error=auth` 처리
+  - [x] 로그인 후 보호 홈(`/`) 렌더 = 돌아가는 앱
 
-### T1.2 [코드] 보호 라우트 / 미들웨어
+### T1.2 [코드] 보호 라우트 / 미들웨어 ✅
 - 설명: 미로그인 접근 차단, 로그인으로 리다이렉트.
-- 대상: `middleware.ts`
+- 대상: `middleware.ts`, `lib/supabase/middleware.ts`
 - 수용 기준:
-  - [ ] 미로그인 상태로 보호 경로(`/items/*` 등) 접근 시 로그인으로 리다이렉트
-  - [ ] 로그인 상태에서 로그인 페이지 접근 시 앱으로 리다이렉트
+  - [x] 미로그인으로 보호 경로 접근 시 `/login` 리다이렉트 (검증: `GET /` → 307 → `/login`)
+  - [ ] (선택) 로그인 상태에서 `/login` 접근 시 홈으로 리다이렉트 — 미구현, Phase 2 착수 시 옵션 처리
+- 참고: 사용은 같은 브라우저에서 링크 클릭 필요(PKCE code_verifier 쿠키). Redirect URLs 허용목록에 `http://localhost:3000/**` 등록 필요.
 
 **검증 방법**: 빌드 + 수동 확인(로그인→세션 유지→로그아웃, 미로그인 리다이렉트).
 
